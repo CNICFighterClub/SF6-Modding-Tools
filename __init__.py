@@ -194,7 +194,7 @@ class PruneArmature(Operator):
         return obj is not None and bool( obj.type == "ARMATURE" ) and bool(bpy.context.object.mode == "OBJECT")
 
     def is_body_bone(self, bone):
-        body_keywords = ["Bip001", "LOD", "lod", "hair_bone"]
+        body_keywords = ["Bip001", "LOD", "lod", "hair_bone", "Bone"]
         for keyword in body_keywords:
             if keyword in bone:
                 return True
@@ -232,7 +232,9 @@ class PruneArmature(Operator):
         return num_merged_bone
 
     def get_parenting(self, armature, cur_bone, conv, target):
-        if cur_bone in conv:
+        if cur_bone == "Bip001-Pelvis":
+            target[cur_bone] = "Bip001-Spine"
+        elif cur_bone in conv:
             target[cur_bone] = cur_bone
         else:
             par = armature.bones[cur_bone].parent
@@ -256,8 +258,6 @@ class PruneArmature(Operator):
         target_parent = {}
         self.get_parenting(armature, root, conv, target_parent)
 #        print(target_parent)
-        if not prefs.use_face_conv:
-            target_parent["Bip001-Pelvis"] = "Bip001-Spine"
         
         self.merge_weights(armature_obj, target_parent, prefs.use_face_conv)
         
@@ -358,7 +358,7 @@ class RenameVertexGroups(Operator):
 
 
 class RenameMeshToREFormat(Operator):
-    bl_label = "Rename Meshes"
+    bl_label = "Rename meshes"
     bl_idname = "sf6_toolbox.rename_meshes"
     bl_description = "Renames selected meshes to RE mesh naming scheme (Example: Group_0_Sub_0__Shirts_Mat)"
     bl_options = {'REGISTER', 'UNDO'}
