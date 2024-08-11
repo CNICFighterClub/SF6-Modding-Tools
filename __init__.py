@@ -15,6 +15,14 @@ import sys
 from bpy.types import AddonPreferences, Operator, Panel
 from bpy.props import BoolProperty
 
+specials = {
+    "Bip001-Pelvis": "Bip001-Spine",
+    "Bone_Forearm_L_01": "Bip001-L-UpperArm",
+    "Bone_Forearm_R_01": "Bip001-R-UpperArm",
+    "Bip001-L-Calf" : "Bone_knee_root_L",
+    "Bip001-R-Calf" : "Bone_knee_root_R"
+}
+
 def get_prefs():
     return bpy.context.preferences.addons[__name__].preferences
 
@@ -43,10 +51,22 @@ class ToolboxPanel(Panel):
         layout.operator("sf6_toolbox.rename_vgs")
         layout.operator("sf6_toolbox.rename_meshes")
 
+def get_face_root():
+    root = None
+    for obj in bpy.context.selected_objects:
+        if obj.type != 'ARMATURE':
+            continue        
+        for bone in obj.data.bones:
+            if bone.name.startswith("Bone_face"):
+                root = bone.name
+            
+    assert(root is not None)
+    return root
+
 class Converter():
     def snowbreak_to_sf6_face():
         face_conv = {
-            "Bone_face008" : "C_FaceRoot",
+#            "Bone_face008" : "C_FaceRoot",
             "upperLidMain1_L" : "L_eye_Top",
             "upperLidMain4_L" : "L_eye_lid_up_00",
 #            "upperLidMain6_L" : "",
@@ -77,7 +97,7 @@ class Converter():
         for k, v in face_conv.items():
             mirror[k.replace("_L", "_R")] = v.replace("L_", "R_")
         face_conv.update(mirror)
-        
+
         return face_conv
         
     def snowbreak_to_sf6():
@@ -87,7 +107,7 @@ class Converter():
             "Bip001-L-Thigh" : "L_Thigh",
             "Bip001-L-Calf" : "L_Calf_HJ_01",
             "Bip001-L-Foot" : "L_Foot",
-            "Bip001-L-Toe0" : "L_Toe",
+            "Bip001-L-Toe0" : "L_Metatarsal",
             "Bip001-L-Clavicle" : "L_Trapezius_HJ_02",
             "Bip001-L-UpperArm" : "L_UpperArm",
             "Bip001-L-Forearm" : "L_ForeArm",
@@ -112,12 +132,18 @@ class Converter():
             "Bip001-Neck2" : "C_Neck1",
             "Bip001-Spine" : "C_Spine1",
             "Bip001-Spine2" : "C_Spine2",
-            "Bip001-Spine3" : "C_Chest"
+            "Bip001-Spine3" : "C_Chest",
+            "Bone_knee_root_L" : "L_Knee",
+            "Bone_knee_L_03" : "L_Hamstring_HJ_01",
+            "Bone_knee_L_04" : "L_CalfJiggle_HJ_01"
         }
         
+        mirror_rules = [("-L-", "-R-"), ("_L", "_R"), ("_l", "_r")]
         mirror = {}
         for k, v in conv.items():
-            mirror[k.replace("-L-", "-R-")] = v.replace("L_", "R_")
+            for rule in mirror_rules:
+                if rule[0] in k:
+                    mirror[k.replace(rule[0], rule[1])] = v.replace("L_", "R_")
         conv.update(mirror)
 
         return conv
@@ -127,6 +153,7 @@ class Converter():
         rconv = {}
         for k, v in conv.items():
             rconv[v] = k
+        print(conv)
         return rconv
 
     def sf6_to_snowbreak_face():
@@ -182,7 +209,13 @@ def set_active(obj, skip_sel=False):
 
 def select(obj, sel=True):
     obj.select_set(sel)
-        
+
+def check_bone_exists(armature, target_bone):
+    for bone in armature.bones:
+        if bone.name == target_bone:
+            return True
+    return False
+
 class PruneArmature(Operator):
     bl_label = "Prune armature"
     bl_idname = "sf6_toolbox.prune_armature"
@@ -232,8 +265,8 @@ class PruneArmature(Operator):
         return num_merged_bone
 
     def get_parenting(self, armature, cur_bone, conv, target):
-        if cur_bone == "Bip001-Pelvis":
-            target[cur_bone] = "Bip001-Spine"
+        if cur_bone in specials and check_bone_exists(armature, specials[cur_bone]):
+            target[cur_bone] = specials[cur_bone]
         elif cur_bone in conv:
             target[cur_bone] = cur_bone
         else:
@@ -245,19 +278,20 @@ class PruneArmature(Operator):
 
     def execute(self, context):
         prefs = get_prefs()
+   
         if prefs.use_face_conv:
             conv = Converter.snowbreak_to_sf6_face()
-            root = 'Bone_face008'
+            root = get_face_root()
+            conv[root] = "C_FaceRoot"
         else:
             conv = Converter.snowbreak_to_sf6()
             root = 'root_01'
             
         armature_obj = bpy.context.active_object
         armature = armature_obj.data
-   
+        
         target_parent = {}
         self.get_parenting(armature, root, conv, target_parent)
-#        print(target_parent)
         
         self.merge_weights(armature_obj, target_parent, prefs.use_face_conv)
         
@@ -283,7 +317,8 @@ class SnapArmature(Operator):
     def execute(self, context):
         prefs = get_prefs()
         if prefs.use_face_conv:
-            conv = Converter.sf6_to_snowbreak_face()
+            conv = Converter.sf6_to_snowbreak_face()        
+            conv["C_FaceRoot"] = get_face_root()
         else:
             conv = Converter.sf6_to_snowbreak()
         
@@ -300,7 +335,7 @@ class SnapArmature(Operator):
         bpy.ops.object.mode_set(mode='EDIT')
         bpy.context.area.type = 'VIEW_3D'
         for k, v in conv.items():
-            if v not in armature.edit_bones or k not in armature.edit_bones:
+            if k == "Root" or v not in armature.edit_bones or k not in armature.edit_bones:
                 continue
             
             armature.edit_bones.active = armature.edit_bones[v]
@@ -347,7 +382,9 @@ class RenameVertexGroups(Operator):
             for key, vg in vgs.items():
                 if key in conv.values():
                     continue
-                if key in conv:
+                if prefs.use_face_conv and key.startswith("Bone_face"):
+                    vg.name = "C_FaceRoot"
+                elif key in conv:
                     vg.name = conv[key]
                 else:
                     vgs.remove(vg)
